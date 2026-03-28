@@ -79,9 +79,22 @@ async def get_patient_timeline(
     patient_id: str,  # str so integer IDs like "27" are accepted
     current_user: CurrentUser,
     svc: PatientServiceDep,
+    view: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Timeline view preset. "
+                "'medicines' — shows only medication events. "
+                "'summary' — shows diagnoses, clinical notes, follow-ups, procedures. "
+                "Omit for the full timeline."
+            ),
+        ),
+    ] = None,
     event_type: Annotated[
         str | None,
-        Query(description="Filter by event type"),
+        Query(
+            description="Filter by a single event type (overridden by 'view' when set)"
+        ),
     ] = None,
     date_from: Annotated[
         date | None,
@@ -119,6 +132,11 @@ async def get_patient_timeline(
     """
     Return a chronologically ordered, paginated list of clinical events
     for the specified patient.
+
+    ### View presets
+    Use `?view=medicines` to see only medication events.
+    Use `?view=summary` to see diagnoses, clinical notes, follow-ups, and procedures.
+    Omit `view` for the full unfiltered timeline.
 
     ### Sort order
     ``event_date ASC NULLS LAST`` → ``created_at ASC``
@@ -171,10 +189,24 @@ async def get_patient_timeline(
         except ValueError:
             parsed_event_data = None
 
+    # ── Resolve view preset → event_types filter ─────────────────────────────
+    resolved_event_types: list[str] | None = None
+    if view == "medicines":
+        resolved_event_types = ["medication"]
+    elif view == "summary":
+        resolved_event_types = [
+            "diagnosis",
+            "clinical_note",
+            "follow_up",
+            "procedure",
+            "other",
+        ]
+
     try:
         return await svc.get_timeline(
             pid,
-            event_type=event_type,
+            event_type=event_type if resolved_event_types is None else None,
+            event_types=resolved_event_types,
             date_from=date_from,
             date_to=date_to,
             verified_only=verified_only,

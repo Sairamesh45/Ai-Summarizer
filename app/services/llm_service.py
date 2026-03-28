@@ -243,26 +243,29 @@ _DOCTOR_SUMMARY_SYSTEM = textwrap.dedent(
 
     STRICT RULES — read carefully:
     1. Use ONLY the structured event data provided. Do NOT hallucinate or infer any information.
-    2. If a category has no data, omit it completely. Do not write “no data available”.
-    3. Write continuous clinical prose — no bullet points, no headers, no lists.
-    4. Begin directly with clinical content. No preamble such as “Here is a summary”.
-    5. Target length: 150–200 words. Do not exceed 220 words.
+    2. If a category has no data, omit it completely. Do not write "no data available".
+    3. Format output as a structured bulleted list. Each bullet is one clinical statement.
+    4. Begin IMMEDIATELY with the first bullet point. NO preamble, no introductory sentence,
+       no phrases like "Here is a summary", "Based on the data", or "The patient presented".
+    5. Use a bullet marker (•) at the start of each line. Target 6–10 concise bullets.
     6. Use standard medical terminology and abbreviations where appropriate.
 
-    WHAT TO HIGHLIGHT (only if present in the data):
-    • Chronic and ongoing diagnoses (e.g. T2DM, HTN, CKD stage).
-    • Medication changes across visits: new medications, discontinued drugs, dose adjustments.
-    • Abnormal or worsening lab trends (e.g. rising HbA1c, declining eGFR, elevated LDL).
-    • Notable procedures, follow-up plans, or clinical decisions.
+    BULLET CATEGORIES (only include if data present):
+    • Primary Diagnoses / Chief Complaint
+    • Active Medications
+    • Abnormal Lab Findings (explicitly note HIGH/LOW values with units)
+    • Vital Signs / Examination findings
+    • Procedures / Interventions
+    • Follow-up / Clinical Plan
 """
 )
-
 _DOCTOR_SUMMARY_PROMPT = textwrap.dedent(
     """\
-    Generate a 150–200-word professional physician-facing summary for the patient below.
+    Generate a structured physician-facing bullet-point summary for the patient below.
     Use ONLY the chronological structured clinical event data provided.
+    Start IMMEDIATELY with the first bullet point — absolutely no preamble or introductory text.
+    Each bullet must be a complete, concise clinical statement.
     Highlight chronic diseases, medication changes, and abnormal lab trends.
-    Write in clinical prose — no bullet points, no headers.
 
     Patient Clinical Events (JSON):
     --------------------------------
@@ -270,6 +273,45 @@ _DOCTOR_SUMMARY_PROMPT = textwrap.dedent(
     --------------------------------
 """
 )
+
+# Matches common LLM preamble lines before the first bullet point
+_PREAMBLE_RE = re.compile(
+    r"^[^•\-\*]+?(?:summary|patient|below|provided|following|data)[^•\-\*]*?\n+",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _strip_preamble(text: str) -> str:
+    """Remove any LLM-generated preamble before the first bullet point."""
+    # Find the first line that starts with a bullet marker
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped and stripped[0] in ("•", "-", "*"):
+            return "\n".join(lines[i:]).strip()
+    return text.strip()
+
+
+def _parse_bullet_points(text: str) -> list[str]:
+    """Extract bullet point strings from bulleted summary text."""
+    points: list[str] = []
+    current: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped[0] in ("•", "-", "*"):
+            if current:
+                points.append(" ".join(current))
+                current = []
+            current = [stripped.lstrip("•-* ").strip()]
+        elif current:
+            # Continuation of previous bullet
+            current.append(stripped)
+    if current:
+        points.append(" ".join(current))
+    return [p for p in points if p]
+
 
 # Strips optional markdown code fences the model may wrap JSON in
 _CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
@@ -840,20 +882,24 @@ class LlmService:
             options={"temperature": 0.3},
         )
 
-        summary = result.text
+        # Strip any preamble the model may have emitted despite instructions
+        summary = _strip_preamble(result.text)
+        summary_points = _parse_bullet_points(summary)
         word_count = len(summary.split())
 
         log.info(
-            "LlmService.doctor_summary: patient=%s model=%s words=%d duration_ms=%.0f",
+            "LlmService.doctor_summary: patient=%s model=%s words=%d bullets=%d duration_ms=%.0f",
             patient_id,
             result.model,
             word_count,
+            len(summary_points),
             result.total_duration_ms or 0,
         )
 
         return DoctorSummaryResponse(
             patient_id=patient_id,
             summary=summary,
+            summary_points=summary_points,
             word_count=word_count,
             model=result.model,
             event_count=event_count,

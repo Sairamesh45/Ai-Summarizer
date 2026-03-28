@@ -318,9 +318,21 @@ class LabReportItem(BaseModel):
         default=None,
         description="Normal range (e.g. '70–100 mg/dL')",
     )
+    category: str | None = Field(
+        default=None,
+        description="Test category (e.g. 'Hematology', 'Lipid Profile', 'Blood Sugar')",
+    )
     event_date: date | None = None
     is_verified: bool = False
     created_at: datetime | None = None
+
+
+class LabReportGroup(BaseModel):
+    """A group of lab results sharing the same clinical category."""
+
+    category: str
+    items: list["LabReportItem"]
+    abnormal_count: int = 0
 
 
 class LabReportResponse(BaseModel):
@@ -330,6 +342,10 @@ class LabReportResponse(BaseModel):
     total: int = Field(description="Total number of lab_result events.")
     items: list[LabReportItem] = Field(
         description="All lab results sorted by created_at DESC (most recent first)."
+    )
+    grouped_items: list[LabReportGroup] = Field(
+        default_factory=list,
+        description="Lab results grouped by clinical category for organised display.",
     )
     abnormal_count: int = Field(
         default=0,
@@ -347,12 +363,16 @@ class LabReportResponse(BaseModel):
 # =============================================================================
 class DoctorSummaryResponse(BaseModel):
     """
-    AI-generated 150–200 word physician-facing patient summary derived from
-    the patient’s chronological structured clinical events.
+    AI-generated physician-facing patient summary derived from the patient's
+    chronological structured clinical events. Formatted as bullet points.
     """
 
     patient_id: uuid.UUID
-    summary: str = Field(description="Professional physician-facing narrative summary.")
+    summary: str = Field(description="Full bulleted physician-facing summary text.")
+    summary_points: list[str] = Field(
+        default_factory=list,
+        description="Parsed list of individual bullet-point statements for easy rendering.",
+    )
     word_count: int
     model: str = Field(description="Ollama model used to generate the summary.")
     event_count: int = Field(description="Number of events included in the context.")

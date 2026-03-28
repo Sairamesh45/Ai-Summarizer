@@ -262,6 +262,152 @@ def _flag_from_range(value: float, lo: float | None, hi: float | None) -> str:
     return "NORMAL"
 
 
+# ---------------------------------------------------------------------------
+#  Test category mapping
+# ---------------------------------------------------------------------------
+
+_CATEGORY_MAP: dict[str, str] = {
+    # Blood Sugar / Diabetes
+    "hba1c": "Blood Sugar",
+    "hemoglobin a1c": "Blood Sugar",
+    "fasting glucose": "Blood Sugar",
+    "fasting blood sugar": "Blood Sugar",
+    "fbs": "Blood Sugar",
+    "random glucose": "Blood Sugar",
+    "rbs": "Blood Sugar",
+    "pp glucose": "Blood Sugar",
+    "ppbs": "Blood Sugar",
+    "postprandial blood sugar": "Blood Sugar",
+    "glucose": "Blood Sugar",
+    # CBC / Hematology
+    "hemoglobin": "Hematology",
+    "hb": "Hematology",
+    "haemoglobin": "Hematology",
+    "hematocrit": "Hematology",
+    "hct": "Hematology",
+    "rbc": "Hematology",
+    "rbc count": "Hematology",
+    "wbc": "Hematology",
+    "wbc count": "Hematology",
+    "white blood cells": "Hematology",
+    "platelet count": "Hematology",
+    "platelets": "Hematology",
+    "plt": "Hematology",
+    "mcv": "Hematology",
+    "mch": "Hematology",
+    "mchc": "Hematology",
+    "rdw": "Hematology",
+    "mpv": "Hematology",
+    "esr": "Hematology",
+    "neutrophils": "Hematology",
+    "lymphocytes": "Hematology",
+    "monocytes": "Hematology",
+    "eosinophils": "Hematology",
+    "basophils": "Hematology",
+    # Lipid Profile
+    "total cholesterol": "Lipid Profile",
+    "cholesterol": "Lipid Profile",
+    "ldl": "Lipid Profile",
+    "ldl cholesterol": "Lipid Profile",
+    "hdl": "Lipid Profile",
+    "hdl cholesterol": "Lipid Profile",
+    "triglycerides": "Lipid Profile",
+    "vldl": "Lipid Profile",
+    # Kidney Function
+    "creatinine": "Kidney Function",
+    "serum creatinine": "Kidney Function",
+    "bun": "Kidney Function",
+    "blood urea nitrogen": "Kidney Function",
+    "urea": "Kidney Function",
+    "uric acid": "Kidney Function",
+    "egfr": "Kidney Function",
+    # Liver Function
+    "sgot": "Liver Function",
+    "ast": "Liver Function",
+    "sgpt": "Liver Function",
+    "alt": "Liver Function",
+    "alkaline phosphatase": "Liver Function",
+    "alp": "Liver Function",
+    "total bilirubin": "Liver Function",
+    "bilirubin": "Liver Function",
+    "direct bilirubin": "Liver Function",
+    "indirect bilirubin": "Liver Function",
+    "albumin": "Liver Function",
+    "total protein": "Liver Function",
+    "globulin": "Liver Function",
+    "ggt": "Liver Function",
+    # Thyroid
+    "tsh": "Thyroid",
+    "t3": "Thyroid",
+    "free t3": "Thyroid",
+    "t4": "Thyroid",
+    "free t4": "Thyroid",
+    # Electrolytes
+    "sodium": "Electrolytes",
+    "potassium": "Electrolytes",
+    "chloride": "Electrolytes",
+    "calcium": "Electrolytes",
+    "phosphorus": "Electrolytes",
+    "magnesium": "Electrolytes",
+    "bicarbonate": "Electrolytes",
+    # Iron Studies
+    "iron": "Iron Studies",
+    "serum iron": "Iron Studies",
+    "ferritin": "Iron Studies",
+    "tibc": "Iron Studies",
+    # Vitamins
+    "vitamin d": "Vitamins",
+    "25-hydroxyvitamin d": "Vitamins",
+    "vitamin b12": "Vitamins",
+    "folate": "Vitamins",
+    "folic acid": "Vitamins",
+    # Coagulation
+    "pt": "Coagulation",
+    "inr": "Coagulation",
+    "aptt": "Coagulation",
+    # Cardiac Markers
+    "troponin": "Cardiac Markers",
+    "troponin i": "Cardiac Markers",
+    "bnp": "Cardiac Markers",
+    "ck-mb": "Cardiac Markers",
+    "cpk": "Cardiac Markers",
+    "ldh": "Cardiac Markers",
+    "crp": "Cardiac Markers",
+    "c-reactive protein": "Cardiac Markers",
+    "hs-crp": "Cardiac Markers",
+    # Pancreatic
+    "amylase": "Pancreatic",
+    "lipase": "Pancreatic",
+    # Urinalysis
+    "specific gravity": "Urinalysis",
+    "urine ph": "Urinalysis",
+}
+
+# Preferred display order for categories
+CATEGORY_ORDER: list[str] = [
+    "Blood Sugar",
+    "Hematology",
+    "Lipid Profile",
+    "Kidney Function",
+    "Liver Function",
+    "Thyroid",
+    "Electrolytes",
+    "Iron Studies",
+    "Vitamins",
+    "Coagulation",
+    "Cardiac Markers",
+    "Pancreatic",
+    "Urinalysis",
+    "Other",
+]
+
+
+def get_category(test_name: str) -> str:
+    """Return the clinical category for a given test name."""
+    key = _normalise_test_name(test_name)
+    return _CATEGORY_MAP.get(key, "Other")
+
+
 def enrich_lab_result(lab: dict[str, Any]) -> dict[str, Any]:
     """
     Add flag and reference_range to a lab result dict.

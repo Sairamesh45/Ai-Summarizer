@@ -45,6 +45,7 @@ from app.core.exceptions import NotFoundException
 from app.models.medical import ExtractedEvent, GenderEnum, Patient
 from app.schemas.medical import (
     ExtractedEventOut,
+    LabReportGroup,
     LabReportItem,
     LabReportResponse,
     LabTrendPoint,
@@ -168,6 +169,7 @@ class PatientService:
         patient_id: uuid.UUID,
         *,
         event_type: str | None = None,
+        event_types: list[str] | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
         verified_only: bool = False,
@@ -184,7 +186,9 @@ class PatientService:
             Owner of the timeline. Raises 404 if not found.
         event_type:
             Filter to a single event type (e.g. ``'diagnosis'``).
-            Uses ``idx_events_patient_type``.
+        event_types:
+            Filter to multiple event types (e.g. ``['diagnosis', 'clinical_note']``).
+            Takes precedence over ``event_type`` when both are supplied.
         date_from / date_to:
             Inclusive date-range filter on ``event_date``.
             NULL event_date rows are excluded when a range is applied.
@@ -193,7 +197,6 @@ class PatientService:
         event_data_contains:
             JSONB containment filter — ``event_data @> :value``.
             Uses ``idx_events_data_gin`` (GIN index).
-            Example: ``{"flag": "HIGH"}`` returns all high-flag lab results.
         limit / offset:
             Pagination (max 200 rows per page).
         """
@@ -205,7 +208,9 @@ class PatientService:
         # Build incrementally so the count query reuses the same filters.
         filters = [ExtractedEvent.patient_id == patient_id]
 
-        if event_type is not None:
+        if event_types is not None:
+            filters.append(ExtractedEvent.event_type.in_(event_types))  # type: ignore[attr-defined]
+        elif event_type is not None:
             filters.append(ExtractedEvent.event_type == event_type)
 
         if date_from is not None:
@@ -308,7 +313,11 @@ class PatientService:
         )
         rows = list(result.scalars().all())
 
-        from app.services.lab_reference import enrich_lab_result
+        from app.services.lab_reference import (
+            enrich_lab_result,
+            get_category,
+            CATEGORY_ORDER,
+        )
 
         items: list[LabReportItem] = []
         abnormal = 0
@@ -327,6 +336,7 @@ class PatientService:
             unit = data.get("unit") or None
             flag = data.get("flag") or None
             ref_range = data.get("reference_range") or None
+            category = get_category(test_name)
 
             numeric_value: float | None = None
             try:
@@ -347,9 +357,33 @@ class PatientService:
                     unit=unit,
                     flag=flag,
                     reference_range=ref_range,
+                    category=category,
                     event_date=row.event_date,
                     is_verified=row.is_verified,
                     created_at=row.created_at,
+                )
+            )
+
+        # Build grouped_items ordered by clinical category
+        from collections import defaultdict
+
+        cat_buckets: dict[str, list[LabReportItem]] = defaultdict(list)
+        for item in items:
+            cat_buckets[item.category or "Other"].append(item)
+
+        ordered_cats = [c for c in CATEGORY_ORDER if c in cat_buckets]
+        remaining = [c for c in cat_buckets if c not in CATEGORY_ORDER]
+        grouped_items: list[LabReportGroup] = []
+        for cat in ordered_cats + remaining:
+            cat_items = cat_buckets[cat]
+            cat_abnormal = sum(
+                1
+                for i in cat_items
+                if i.flag and i.flag.upper() in ("HIGH", "LOW", "CRITICAL")
+            )
+            grouped_items.append(
+                LabReportGroup(
+                    category=cat, items=cat_items, abnormal_count=cat_abnormal
                 )
             )
 
@@ -364,6 +398,7 @@ class PatientService:
             patient_id=patient_id,
             total=len(items),
             items=items,
+            grouped_items=grouped_items,
             abnormal_count=abnormal,
         )
 
